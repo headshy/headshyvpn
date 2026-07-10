@@ -1,0 +1,17 @@
+{
+  "expo": {
+    "name": "Headshy VPN",
+    "slug": "headshy-vpn",
+    "extra": {
+      "eas": {
+        "projectId": "886c8ed9-d7d9-481f-b992-d415e7d71386"
+      }
+    },
+    "ios": {
+      "bundleIdentifier": "com.headshy.headshyvpn",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    }
+  }
+}
