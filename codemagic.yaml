@@ -1,20 +1,20 @@
 workflows:
   ios-release:
     name: iOS Release Workflow
-    max_build_duration: 120
     instance_type: mac_mini_m1
-    environment:
-      groups:
-        - cocoapods
     scripts:
       - name: Install dependencies
-        script: npm install
+        script: |
+          npm install
+          npm install glob  # Принудительная установка недостающего модуля
       - name: Expo Prebuild
         script: npx expo prebuild --platform ios --clean
       - name: Build iOS
         script: |
+          # Переходим в папку ios и генерируем Pods
           cd ios
           pod install
+          # Собираем проект
           xcodebuild -workspace HeadshyVPN.xcworkspace -scheme HeadshyVPN -configuration Release -destination 'generic/platform=iOS' archive -archivePath HeadshyVPN.xcarchive
     artifacts:
-      - ios/HeadshyVPN.xcarchive
+      - ios/*.xcarchive
