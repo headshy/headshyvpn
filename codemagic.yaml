@@ -9,15 +9,13 @@ workflows:
           npm install glob  # Принудительная установка недостающего модуля
       - name: Expo Prebuild
         script: npx expo prebuild --platform ios --clean
-      - name: Build iOS
+      - name: Build and Export IPA
         script: |
           cd ios
           pod install
-          xcodebuild -workspace HeadshyVPN.xcworkspace \
-            -scheme HeadshyVPN \
-            -configuration Release \
-            -destination 'generic/platform=iOS' \
-            archive -archivePath HeadshyVPN.xcarchive \
-            CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO
+          # Собираем приложение
+          xcodebuild build -workspace HeadshyVPN.xcworkspace -scheme HeadshyVPN -configuration Release -destination 'generic/platform=iOS' -archivePath HeadshyVPN.xcarchive archive
+          # Экспортируем архив в IPA
+          xcodebuild -exportArchive -archivePath HeadshyVPN.xcarchive -exportOptionsPlist exportOptions.plist -exportPath .
     artifacts:
-      - ios/*.xcarchive
+      - ios/*.ipa
