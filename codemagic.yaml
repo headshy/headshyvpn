@@ -1,58 +1,20 @@
 workflows:
-  ios-release-build:
-    name: iOS Expo Release IPA Build
-    max_build_duration: 60
+  ios-release:
+    name: iOS Release Workflow
+    max_build_duration: 120
     instance_type: mac_mini_m1
     environment:
-      node: latest
-      xcode: latest
+      groups:
+        - cocoapods
     scripts:
       - name: Install dependencies
+        script: npm install
+      - name: Expo Prebuild
+        script: npx expo prebuild --platform ios --clean
+      - name: Build iOS
         script: |
-          npm install
-          
-      - name: Download Sing-box Core
-        script: |
-          # Создаем папку, в которую плагин Expo будет искать ядро
-          mkdir -p ios-extension
-          cd ios-extension
-          
-          # Скачиваем готовое iOS-ядро Sing-box (версия 1.11.11) напрямую с GitHub
-          curl -L -o libbox.zip "https://github.com/EbrahimTahernejad/sing-box-lib/releases/download/1.11.11/Libbox.xcframework.zip"
-          
-          # Распаковываем архив
-          unzip libbox.zip
-          
-          # Удаляем мусорный архив, оставляя только папку Libbox.xcframework
-          rm libbox.zip
-          cd ..
-          
-      - name: Generate iOS native folder (Expo Prebuild)
-        script: |
-          # --clean гарантирует, что папка ios будет сгенерирована с нуля
-          npx expo prebuild --platform ios --clean
-          
-      - name: Build iOS Release Application
-        script: |
-          # Компилируем проект в режиме Release (Production)
-          # Обязательно проверь, чтобы имя схемы и воркспейса (HeadshyVPN) совпадало с тем, как их генерирует Expo
-          xcodebuild -workspace ios/HeadshyVPN.xcworkspace \
-            -scheme "HeadshyVPN" \
-            -configuration Release \
-            -destination 'generic/platform=iOS' \
-            CODE_SIGNING_ALLOWED=NO \
-            BUILD_DIR=$HOME/build
-            
-      - name: Package to IPA
-        script: |
-          mkdir -p $HOME/Payload
-          
-          # Забираем собранный код из папки Release-iphoneos
-          cp -r $HOME/build/Release-iphoneos/*.app $HOME/Payload/
-          cd $HOME
-          
-          # Упаковываем в установочный файл
-          zip -r HeadshyVPN_Release.ipa Payload
-          
+          cd ios
+          pod install
+          xcodebuild -workspace HeadshyVPN.xcworkspace -scheme HeadshyVPN -configuration Release -destination 'generic/platform=iOS' archive -archivePath HeadshyVPN.xcarchive
     artifacts:
-      - $HOME/HeadshyVPN_Release.ipa
+      - ios/HeadshyVPN.xcarchive
