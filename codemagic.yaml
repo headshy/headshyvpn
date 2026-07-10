@@ -13,18 +13,27 @@ workflows:
         script: |
           cd ios
           pod install
-          # Собираем билд с отключением всех требований к подписи
+          
+          # 1. Запускаем сборку и просим Xcode выдать нам путь к результату
           xcodebuild build -workspace HeadshyVPN.xcworkspace \
                            -scheme HeadshyVPN \
                            -configuration Release \
                            -destination 'generic/platform=iOS' \
-                           CODE_SIGN_IDENTITY="" \
                            CODE_SIGNING_REQUIRED=NO \
-                           CODE_SIGNING_ALLOWED=NO
+                           CODE_SIGNING_ALLOWED=NO \
+                           SYMROOT=$(pwd)/build
           
-          # Упаковываем в IPA вручную через структуру папок (без archive)
+          # 2. Ищем файл .app где угодно внутри папки build
+          APP_PATH=$(find $(pwd)/build -name "*.app" | head -n 1)
+          
+          if [ -z "$APP_PATH" ]; then
+            echo "Ошибка: Файл .app не найден!"
+            exit 1
+          fi
+          
+          # 3. Упаковываем найденный файл в IPA
           mkdir -p Payload
-          cp -r build/Release-iphoneos/HeadshyVPN.app Payload/
+          cp -r "$APP_PATH" Payload/
           zip -r HeadshyVPN.ipa Payload
     artifacts:
       - ios/*.ipa
