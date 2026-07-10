@@ -1,6 +1,6 @@
 workflows:
-  ios-debug-build:
-    name: iOS Expo Debug IPA Build
+  ios-release-build:
+    name: iOS Expo Release IPA Build
     max_build_duration: 60
     instance_type: mac_mini_m1
     environment:
@@ -10,24 +10,29 @@ workflows:
       - name: Install dependencies
         script: |
           npm install
+      
       - name: Generate iOS native folder (Expo Prebuild)
         script: |
           npx expo prebuild --platform ios
-      - name: Build iOS Debug Application
+      
+      - name: Build iOS Release Application
         script: |
-          # Мы жестко указали схему HeadshyVPN, чтобы избежать ошибок автоматического поиска
+          # Жестко указываем схему HeadshyVPN и собираем в Production (Release)
           xcodebuild -workspace ios/HeadshyVPN.xcworkspace \
             -scheme "HeadshyVPN" \
-            -configuration Debug \
+            -configuration Release \
             -destination 'generic/platform=iOS' \
             CODE_SIGNING_ALLOWED=NO \
             BUILD_DIR=$HOME/build
+      
       - name: Package to IPA
         script: |
           mkdir -p $HOME/Payload
-          cp -r $HOME/build/Debug-iphoneos/*.app $HOME/Payload/
+          # Берем готовый .app из папки Release-iphoneos
+          cp -r $HOME/build/Release-iphoneos/*.app $HOME/Payload/
           cd $HOME
-          # Называем выходной файл понятным именем
-          zip -r HeadshyVPN_Debug.ipa Payload
+          # Упаковываем в финальный релизный файл
+          zip -r HeadshyVPN_Release.ipa Payload
+          
     artifacts:
-      - $HOME/HeadshyVPN_Debug.ipa
+      - $HOME/HeadshyVPN_Release.ipa
