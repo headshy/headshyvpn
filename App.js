@@ -1,3 +1,5 @@
+import { NativeModules } from 'react-native';
+const { VpnManager } = NativeModules;
 import React, { useState, useRef, useEffect } from 'react';
 import { 
   StyleSheet, Text, View, Pressable, SafeAreaView, StatusBar, 
@@ -5,7 +7,6 @@ import {
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import base64 from 'react-native-base64';
-import * as VpnManager from './modules/headshy-vpn-manager';
 import { generateSingboxConfig } from './utils/singboxParser';
 
 export default function App() {
