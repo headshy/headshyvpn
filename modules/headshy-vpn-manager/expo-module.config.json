@@ -1,0 +1,6 @@
+{
+  "name": "HeadshyVpnManager",
+  "ios": {
+    "modules": ["HeadshyVpnManagerModule"]
+  }
+}
