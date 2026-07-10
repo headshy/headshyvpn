@@ -136,7 +136,7 @@ export default function App() {
   const handlePressIn = () => Animated.spring(scaleAnim, { toValue: 0.92, useNativeDriver: true }).start();
   const handlePressOut = async () => {
     Animated.spring(scaleAnim, { toValue: 1, friction: 4, tension: 40, useNativeDriver: true }).start();
-    
+
     if (!currentServer) {
       Alert.alert('Внимание', 'Сначала загрузите подписку и выберите сервер');
       return;
@@ -145,6 +145,11 @@ export default function App() {
     if (status === 'Disconnected') {
       try {
         const jsonConfig = generateSingboxConfig(currentServer.rawLink);
+        if (!VpnManager) {
+          Alert.alert('Ошибка', 'Модуль моста не найден');
+          return;
+        }
+// далее идет await VpnManager.startVPN(jsonConfig);
         await VpnManager.startVPN(jsonConfig);
         setStatus('Connected');
       } catch (error) {
