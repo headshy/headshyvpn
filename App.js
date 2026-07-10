@@ -143,15 +143,12 @@ export default function App() {
     
     if (status === 'Disconnected') {
       try {
-        // 1. Конвертируем ссылку в Sing-box JSON
         const jsonConfig = generateSingboxConfig(currentServer.rawLink);
-        
-        // 2. Отправляем готовый JSON в нативный Swift-мост
         await VpnManager.startVPN(jsonConfig);
-        
         setStatus('Connected');
       } catch (error) {
-        Alert.alert('Ошибка', 'Не удалось запустить VPN. Возможно, неподдерживаемый формат ссылки.');
+        // Теперь мы увидим реальную причину (например, "Протокол vmess не поддерживается")
+        Alert.alert('Ошибка запуска', error.message || 'Неизвестная ошибка');
         console.error(error);
       }
     }
