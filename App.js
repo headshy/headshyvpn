@@ -5,6 +5,8 @@ import {
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import base64 from 'react-native-base64';
+import * as VpnManager from './modules/headshy-vpn-manager';
+import { generateSingboxConfig } from './utils/singboxParser';
 
 export default function App() {
   const [status, setStatus] = useState('Disconnected');
@@ -131,7 +133,7 @@ export default function App() {
 
   // Анимации кнопки
   const handlePressIn = () => Animated.spring(scaleAnim, { toValue: 0.92, useNativeDriver: true }).start();
-  const handlePressOut = () => {
+  const handlePressOut = async () => {
     Animated.spring(scaleAnim, { toValue: 1, friction: 4, tension: 40, useNativeDriver: true }).start();
     
     if (!currentServer) {
@@ -139,7 +141,20 @@ export default function App() {
       return;
     }
     
-    setStatus(status === 'Disconnected' ? 'Connected' : 'Disconnected');
+    if (status === 'Disconnected') {
+      try {
+        // 1. Конвертируем ссылку в Sing-box JSON
+        const jsonConfig = generateSingboxConfig(currentServer.rawLink);
+        
+        // 2. Отправляем готовый JSON в нативный Swift-мост
+        await VpnManager.startVPN(jsonConfig);
+        
+        setStatus('Connected');
+      } catch (error) {
+        Alert.alert('Ошибка', 'Не удалось запустить VPN. Возможно, неподдерживаемый формат ссылки.');
+        console.error(error);
+      }
+    }
   };
 
   return (
