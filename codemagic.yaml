@@ -6,16 +6,31 @@ workflows:
       - name: Install dependencies
         script: |
           npm install
-          npm install glob  # Принудительная установка недостающего модуля
+          npm install glob
       - name: Expo Prebuild
         script: npx expo prebuild --platform ios --clean
       - name: Build and Export IPA
         script: |
           cd ios
+          # Генерируем exportOptions.plist прямо на сервере, чтобы не грузить его в Git
+          echo '<?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key>
+            <string>development</string>
+            <key>signingStyle</key>
+            <string>automatic</string>
+            <key>compileBitcode</key>
+            <false/>
+          </dict>
+          </plist>' > exportOptions.plist
+          
+          # Установка подов
           pod install
-          # Собираем приложение
+          
+          # Сборка и экспорт
           xcodebuild build -workspace HeadshyVPN.xcworkspace -scheme HeadshyVPN -configuration Release -destination 'generic/platform=iOS' -archivePath HeadshyVPN.xcarchive archive
-          # Экспортируем архив в IPA
           xcodebuild -exportArchive -archivePath HeadshyVPN.xcarchive -exportOptionsPlist exportOptions.plist -exportPath .
     artifacts:
       - ios/*.ipa
