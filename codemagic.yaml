@@ -1,0 +1,34 @@
+workflows:
+  ios-debug-build:
+    name: iOS Debug IPA Build
+    max_build_duration: 60
+    instance_type: mac_mini_m1
+    environment:
+      node: latest
+      xcode: latest
+      cocoapods: default
+    scripts:
+      - name: Install dependencies
+        script: |
+          npm install
+      - name: Install CocoaPods
+        script: |
+          cd ios && pod install
+      - name: Build iOS Debug Application
+        script: |
+          # Собираем debug-версию, которая не требует платных сертификатов App Store
+          xcodebuild -workspace ios/*.xcworkspace \
+            -scheme $(xcodebuild -list -workspace ios/*.xcworkspace | grep -m 1 -E "^\s+\S+" | awk '{print $1}') \
+            -configuration Debug \
+            -sdk iphoneos \
+            CODE_SIGNING_ALLOWED=NO \
+            BUILD_DIR=$HOME/build
+      - name: Package to IPA
+        script: |
+          # Создаем структуру папок и упаковываем скомпилированное приложение в .ipa
+          mkdir -p $HOME/Payload
+          cp -r $HOME/build/Debug-iphoneos/*.app $HOME/Payload/
+          cd $HOME
+          zip -r ios_debug_application.ipa Payload
+    artifacts:
+      - $HOME/ios-debug-build.ipa
