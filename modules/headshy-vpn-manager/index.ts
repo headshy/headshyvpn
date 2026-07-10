@@ -1,12 +1,19 @@
 import { requireNativeModule } from 'expo-modules-core';
 
-// Подключаем нативный модуль по имени
-const HeadshyVpnManager = requireNativeModule('HeadshyVpnManager');
+let HeadshyVpnManager: any = null;
 
-export function startVPN(config: string) {
-  return HeadshyVpnManager.startVPN(config);
+try {
+  HeadshyVpnManager = requireNativeModule('HeadshyVpnManager');
+} catch (error) {
+  console.warn('⚠️ Нативный модуль HeadshyVpnManager не найден!');
 }
 
-export function stopVPN() {
-  return HeadshyVpnManager.stopVPN();
+export async function startVPN(config: string) {
+  if (!HeadshyVpnManager) throw new Error("Нативный модуль VPN не скомпилирован");
+  return await HeadshyVpnManager.startVPN(config);
+}
+
+export async function stopVPN() {
+  if (!HeadshyVpnManager) return;
+  return await HeadshyVpnManager.stopVPN();
 }
