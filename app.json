@@ -1,13 +1,12 @@
 {
   "expo": {
-    "name": "Headshy VPN",
-    "slug": "headshy-vpn-app",
+    "name": "HeadshyVPN",
+    "slug": "headshyvpn",
     "version": "1.0.0",
     "ios": {
-      "bundleIdentifier": "com.headshy.headshyvpn"
+      "bundleIdentifier": "com.headshy.headshyvpn",
+      "supportsTablet": true
     },
-    "plugins": [
-      "./plugins/withNetworkExtension.js"
-    ]
+    "plugins": ["./plugins/withNetworkExtension"]
   }
 }
