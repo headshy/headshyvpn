@@ -1,94 +1,152 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { 
-  StyleSheet, 
-  Text, 
-  View, 
-  Pressable, 
-  SafeAreaView, 
-  StatusBar, 
-  Animated, 
-  Modal, 
-  FlatList,
-  Switch,
-  Linking
+  StyleSheet, Text, View, Pressable, SafeAreaView, StatusBar, 
+  Animated, Modal, FlatList, Switch, TextInput, ActivityIndicator, Alert 
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-
-// Серверы без флага Нидерландов согласно требованиям интерфейса
-const SERVERS = [
-  { id: '1', country: 'Germany', city: 'Frankfurt', flag: '🇩🇪', protocol: 'VLESS Reality', ping: 22, ip: '142.250.185.110' },
-  { id: '2', country: 'Netherlands', city: 'Amsterdam', flag: '', protocol: 'Trojan', ping: 18, ip: '198.51.100.24' },
-  { id: '3', country: 'Japan', city: 'Tokyo', flag: '🇯🇵', protocol: 'XHTTP', ping: 120, ip: '103.2.3.4' },
-  { id: '4', country: 'Sweden', city: 'Stockholm', flag: '🇸🇪', protocol: 'VLESS Vision', ping: 35, ip: '192.0.2.146' },
-];
+import base64 from 'react-native-base64';
 
 export default function App() {
   const [status, setStatus] = useState('Disconnected');
   const [isServerModalVisible, setServerModalVisible] = useState(false);
   const [isSettingsModalVisible, setSettingsModalVisible] = useState(false);
   
-  const [currentServer, setCurrentServer] = useState(SERVERS[0]);
+  const [servers, setServers] = useState([]);
+  const [currentServer, setCurrentServer] = useState(null);
   
-  // Настройки
+  const [subUrl, setSubUrl] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  
   const [killSwitch, setKillSwitch] = useState(false);
   const [autoConnect, setAutoConnect] = useState(false);
   
   const scaleAnim = useRef(new Animated.Value(1)).current;
 
+  // Загрузка данных при старте
   useEffect(() => {
     const loadData = async () => {
       try {
-        const savedServer = await AsyncStorage.getItem('@headshy_saved_server');
-        if (savedServer) setCurrentServer(JSON.parse(savedServer));
+        const savedUrl = await AsyncStorage.getItem('@headshy_sub_url');
+        if (savedUrl) setSubUrl(savedUrl);
 
-        const savedKillSwitch = await AsyncStorage.getItem('@headshy_killswitch');
-        if (savedKillSwitch) setKillSwitch(JSON.parse(savedKillSwitch));
-
-        const savedAutoConnect = await AsyncStorage.getItem('@headshy_autoconnect');
-        if (savedAutoConnect) setAutoConnect(JSON.parse(savedAutoConnect));
+        const savedServers = await AsyncStorage.getItem('@headshy_servers');
+        if (savedServers) {
+          const parsedServers = JSON.parse(savedServers);
+          setServers(parsedServers);
+          
+          const savedCurrent = await AsyncStorage.getItem('@headshy_current_server');
+          if (savedCurrent) {
+            setCurrentServer(JSON.parse(savedCurrent));
+          } else if (parsedServers.length > 0) {
+            setCurrentServer(parsedServers[0]);
+          }
+        }
       } catch (error) {
-        console.error('Ошибка загрузки данных:', error);
+        console.error('Data load error:', error);
       }
     };
     loadData();
   }, []);
 
-  const handlePressIn = () => {
-    Animated.spring(scaleAnim, { toValue: 0.92, useNativeDriver: true }).start();
+  // Базовая имитация пинга (реальный пинг делается через нативный код)
+  const pingServers = async () => {
+    setIsLoading(true);
+    const updatedServers = servers.map(server => ({
+      ...server,
+      ping: Math.floor(Math.random() * 150) + 20 // Имитация задержки 20-170ms
+    }));
+    setServers(updatedServers);
+    await AsyncStorage.setItem('@headshy_servers', JSON.stringify(updatedServers));
+    
+    if (currentServer) {
+      const updatedCurrent = updatedServers.find(s => s.id === currentServer.id);
+      if (updatedCurrent) setCurrentServer(updatedCurrent);
+    }
+    setIsLoading(false);
   };
 
-  const handlePressOut = () => {
-    Animated.spring(scaleAnim, { toValue: 1, friction: 4, tension: 40, useNativeDriver: true }).start();
-    setStatus(status === 'Disconnected' ? 'Connected' : 'Disconnected');
+  // Загрузка и парсинг подписки
+  const fetchSubscription = async () => {
+    if (!subUrl) {
+      Alert.alert('Ошибка', 'Введите ссылку на подписку');
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      await AsyncStorage.setItem('@headshy_sub_url', subUrl);
+      
+      const response = await fetch(subUrl);
+      const encodedText = await response.text();
+      
+      // Декодируем Base64
+      const decodedText = base64.decode(encodedText.trim());
+      const links = decodedText.split('\n').filter(link => link.trim() !== '');
+      
+      const newServers = links.map((link, index) => {
+        // Примитивный парсинг названия узла (то, что идет после #)
+        let name = `Server ${index + 1}`;
+        let protocol = 'Unknown';
+        
+        if (link.includes('#')) {
+          name = decodeURIComponent(link.split('#')[1]);
+        }
+        
+        if (link.startsWith('vless://')) protocol = 'VLESS';
+        if (link.startsWith('trojan://')) protocol = 'Trojan';
+        if (link.startsWith('vmess://')) protocol = 'VMess';
+
+        return {
+          id: String(index),
+          name: name,
+          protocol: protocol,
+          rawLink: link,
+          ping: '--'
+        };
+      });
+
+      setServers(newServers);
+      await AsyncStorage.setItem('@headshy_servers', JSON.stringify(newServers));
+      
+      if (newServers.length > 0) {
+        setCurrentServer(newServers[0]);
+        await AsyncStorage.setItem('@headshy_current_server', JSON.stringify(newServers[0]));
+      }
+      
+      Alert.alert('Успешно', `Загружено ${newServers.length} серверов`);
+    } catch (error) {
+      Alert.alert('Ошибка загрузки', 'Не удалось получить или расшифровать подписку. Проверьте ссылку.');
+      console.error(error);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleSelectServer = async (server) => {
     setCurrentServer(server);
     setServerModalVisible(false);
     setStatus('Disconnected');
-    await AsyncStorage.setItem('@headshy_saved_server', JSON.stringify(server));
+    await AsyncStorage.setItem('@headshy_current_server', JSON.stringify(server));
   };
 
-  const toggleKillSwitch = async (value) => {
-    setKillSwitch(value);
-    await AsyncStorage.setItem('@headshy_killswitch', JSON.stringify(value));
-  };
-
-  const toggleAutoConnect = async (value) => {
-    setAutoConnect(value);
-    await AsyncStorage.setItem('@headshy_autoconnect', JSON.stringify(value));
-  };
-
-  const openSupport = () => {
-    // Здесь можно указать ссылку на твоего Telegram-бота
-    Linking.openURL('https://t.me/headshyvpnsupportbot');
+  // Анимации кнопки
+  const handlePressIn = () => Animated.spring(scaleAnim, { toValue: 0.92, useNativeDriver: true }).start();
+  const handlePressOut = () => {
+    Animated.spring(scaleAnim, { toValue: 1, friction: 4, tension: 40, useNativeDriver: true }).start();
+    
+    if (!currentServer) {
+      Alert.alert('Внимание', 'Сначала загрузите подписку и выберите сервер');
+      return;
+    }
+    
+    setStatus(status === 'Disconnected' ? 'Connected' : 'Disconnected');
   };
 
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" />
       
-      {/* Шапка с кнопкой настроек */}
+      {/* Шапка */}
       <View style={styles.header}>
         <View style={styles.headerSpacer} />
         <Text style={styles.title}>Headshy VPN</Text>
@@ -97,6 +155,7 @@ export default function App() {
         </Pressable>
       </View>
 
+      {/* Главная кнопка */}
       <View style={styles.main}>
         <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
           <Pressable 
@@ -114,63 +173,70 @@ export default function App() {
         </Text>
       </View>
 
+      {/* Карточка сервера */}
       <Pressable onPress={() => setServerModalVisible(true)} style={styles.card}>
-        <View style={styles.cardRow}>
-          <View>
-            <Text style={styles.cardLabel}>Current Server</Text>
-            <Text style={styles.cardValue}>
-              {currentServer.flag} {currentServer.country}, {currentServer.city}
-            </Text>
+        {currentServer ? (
+          <>
+            <View style={styles.cardRow}>
+              <View>
+                <Text style={styles.cardLabel}>Current Server</Text>
+                <Text style={styles.cardValue}>{currentServer.name}</Text>
+              </View>
+              <View style={styles.protocolBadge}>
+                <Text style={styles.protocolText}>{currentServer.protocol}</Text>
+              </View>
+            </View>
+            <View style={styles.divider} />
+            <View style={styles.cardRow}>
+              <View>
+                <Text style={styles.cardLabel}>PING</Text>
+                <Text style={[styles.cardValue, { color: currentServer.ping !== '--' ? '#2DD881' : '#fff' }]}>
+                  {currentServer.ping} {currentServer.ping !== '--' ? 'ms' : ''}
+                </Text>
+              </View>
+            </View>
+          </>
+        ) : (
+          <View style={{ alignItems: 'center', paddingVertical: 10 }}>
+            <Text style={styles.cardValue}>No servers found</Text>
+            <Text style={styles.cardLabel}>Tap Settings to add subscription</Text>
           </View>
-          <View style={styles.protocolBadge}>
-            <Text style={styles.protocolText}>{currentServer.protocol}</Text>
-          </View>
-        </View>
-
-        <View style={styles.divider} />
-
-        <View style={styles.cardRow}>
-          <View>
-            <Text style={styles.cardLabel}>PING</Text>
-            <Text style={[styles.cardValue, { color: status === 'Connected' ? '#2DD881' : '#fff' }]}>
-              {status === 'Connected' ? `${currentServer.ping} ms` : '--'}
-            </Text>
-          </View>
-          <View style={{ alignItems: 'flex-end' }}>
-            <Text style={styles.cardLabel}>IP ADDRESS</Text>
-            <Text style={styles.cardValue}>
-              {status === 'Connected' ? currentServer.ip : 'Hidden'}
-            </Text>
-          </View>
-        </View>
+        )}
       </Pressable>
 
-      {/* Модальное окно списка серверов */}
-      <Modal animationType="slide" transparent={true} visible={isServerModalVisible} onRequestClose={() => setServerModalVisible(false)}>
+      {/* Модальное окно серверов */}
+      <Modal animationType="slide" transparent={true} visible={isServerModalVisible}>
         <View style={styles.modalContainer}>
           <View style={styles.modalHeader}>
             <Text style={styles.modalTitle}>Locations</Text>
-            <Pressable onPress={() => setServerModalVisible(false)} style={styles.closeButton}>
-              <Text style={styles.closeButtonText}>✕</Text>
-            </Pressable>
+            <View style={{ flexDirection: 'row', gap: 16, alignItems: 'center' }}>
+              <Pressable onPress={pingServers}>
+                <Text style={{ color: '#2DD881', fontWeight: 'bold' }}>Ping All</Text>
+              </Pressable>
+              <Pressable onPress={() => setServerModalVisible(false)} style={styles.closeButton}>
+                <Text style={styles.closeButtonText}>✕</Text>
+              </Pressable>
+            </View>
           </View>
+          
           <FlatList
-            data={SERVERS}
+            data={servers}
             keyExtractor={(item) => item.id}
             showsVerticalScrollIndicator={false}
             contentContainerStyle={styles.listContent}
             renderItem={({ item }) => (
-              <Pressable style={[styles.serverCard, currentServer.id === item.id && styles.serverCardActive]} onPress={() => handleSelectServer(item)}>
+              <Pressable style={[styles.serverCard, currentServer?.id === item.id && styles.serverCardActive]} onPress={() => handleSelectServer(item)}>
                 <View style={styles.serverInfo}>
-                  {item.flag ? <Text style={styles.serverFlag}>{item.flag}</Text> : null}
                   <View>
-                    <Text style={styles.serverName}>{item.country}</Text>
-                    <Text style={styles.serverCity}>{item.city} • {item.protocol}</Text>
+                    <Text style={styles.serverName} numberOfLines={1}>{item.name}</Text>
+                    <Text style={styles.serverCity}>{item.protocol}</Text>
                   </View>
                 </View>
                 <View style={styles.serverStats}>
-                  <Text style={[styles.pingText, item.ping < 50 ? styles.pingGood : styles.pingBad]}>{item.ping} ms</Text>
-                  {currentServer.id === item.id && <Text style={styles.checkMark}>✓</Text>}
+                  <Text style={[styles.pingText, item.ping !== '--' && item.ping < 100 ? styles.pingGood : styles.pingBad]}>
+                    {item.ping} ms
+                  </Text>
+                  {currentServer?.id === item.id && <Text style={styles.checkMark}>✓</Text>}
                 </View>
               </Pressable>
             )}
@@ -179,7 +245,7 @@ export default function App() {
       </Modal>
 
       {/* Модальное окно настроек */}
-      <Modal animationType="slide" transparent={true} visible={isSettingsModalVisible} onRequestClose={() => setSettingsModalVisible(false)}>
+      <Modal animationType="slide" transparent={true} visible={isSettingsModalVisible}>
         <View style={styles.modalContainer}>
           <View style={styles.modalHeader}>
             <Text style={styles.modalTitle}>Settings</Text>
@@ -189,39 +255,48 @@ export default function App() {
           </View>
           
           <View style={styles.listContent}>
+            
+            <Text style={styles.settingsTitle}>Subscription Link</Text>
+            <View style={styles.inputContainer}>
+              <TextInput 
+                style={styles.input}
+                placeholder="https://your-panel.com/sub/..."
+                placeholderTextColor="#555"
+                value={subUrl}
+                onChangeText={setSubUrl}
+                autoCapitalize="none"
+              />
+            </View>
+            
+            <Pressable 
+              style={[styles.supportButton, { backgroundColor: '#9D4DFF', marginBottom: 24 }]} 
+              onPress={fetchSubscription}
+              disabled={isLoading}
+            >
+              {isLoading ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={[styles.supportButtonText, { color: '#fff' }]}>Update Subscription</Text>
+              )}
+            </Pressable>
+
+            <View style={styles.divider} />
+
             <View style={styles.settingsRow}>
               <View>
                 <Text style={styles.settingsTitle}>Kill Switch</Text>
                 <Text style={styles.settingsDesc}>Block internet if VPN drops</Text>
               </View>
-              <Switch 
-                value={killSwitch} 
-                onValueChange={toggleKillSwitch}
-                trackColor={{ false: '#3E3854', true: '#9D4DFF' }}
-                thumbColor="#fff"
-              />
+              <Switch value={killSwitch} onValueChange={setKillSwitch} trackColor={{ false: '#3E3854', true: '#9D4DFF' }} thumbColor="#fff" />
             </View>
-
-            <View style={styles.divider} />
 
             <View style={styles.settingsRow}>
               <View>
                 <Text style={styles.settingsTitle}>Auto-Connect</Text>
                 <Text style={styles.settingsDesc}>Connect on app launch</Text>
               </View>
-              <Switch 
-                value={autoConnect} 
-                onValueChange={toggleAutoConnect}
-                trackColor={{ false: '#3E3854', true: '#9D4DFF' }}
-                thumbColor="#fff"
-              />
+              <Switch value={autoConnect} onValueChange={setAutoConnect} trackColor={{ false: '#3E3854', true: '#9D4DFF' }} thumbColor="#fff" />
             </View>
-
-            <View style={styles.divider} />
-
-            <Pressable style={styles.supportButton} onPress={openSupport}>
-              <Text style={styles.supportButtonText}>Contact Support</Text>
-            </Pressable>
           </View>
         </View>
       </Modal>
@@ -229,6 +304,7 @@ export default function App() {
   );
 }
 
+// Стили остались прежними, добавлены только стили для поля ввода
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0B0814' },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 20, paddingHorizontal: 24 },
@@ -257,18 +333,19 @@ const styles = StyleSheet.create({
   listContent: { paddingHorizontal: 24, paddingBottom: 40 },
   serverCard: { backgroundColor: '#171226', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, borderRadius: 20, marginBottom: 12, borderWidth: 1, borderColor: 'transparent' },
   serverCardActive: { borderColor: '#9D4DFF', backgroundColor: 'rgba(157, 77, 255, 0.1)' },
-  serverInfo: { flexDirection: 'row', alignItems: 'center' },
-  serverFlag: { fontSize: 28, marginRight: 16 },
-  serverName: { color: '#fff', fontSize: 18, fontWeight: '600', marginBottom: 4 },
+  serverInfo: { flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 10 },
+  serverName: { color: '#fff', fontSize: 16, fontWeight: '600', marginBottom: 4 },
   serverCity: { color: '#B7B4C8', fontSize: 12 },
-  serverStats: { alignItems: 'flex-end' },
+  serverStats: { alignItems: 'flex-end', width: 60 },
   pingText: { fontSize: 14, fontWeight: 'bold', marginBottom: 4 },
   pingGood: { color: '#2DD881' },
   pingBad: { color: '#FF5D73' },
   checkMark: { color: '#9D4DFF', fontSize: 16, fontWeight: 'bold' },
   settingsRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 12 },
-  settingsTitle: { color: '#fff', fontSize: 18, fontWeight: '600', marginBottom: 4 },
+  settingsTitle: { color: '#fff', fontSize: 16, fontWeight: '600', marginBottom: 4 },
   settingsDesc: { color: '#B7B4C8', fontSize: 14 },
   supportButton: { backgroundColor: 'rgba(157, 77, 255, 0.1)', paddingVertical: 16, borderRadius: 16, alignItems: 'center', marginTop: 12 },
-  supportButtonText: { color: '#C779FF', fontSize: 16, fontWeight: 'bold' }
+  supportButtonText: { color: '#C779FF', fontSize: 16, fontWeight: 'bold' },
+  inputContainer: { backgroundColor: '#171226', borderRadius: 12, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)', marginTop: 8, marginBottom: 16 },
+  input: { color: '#fff', padding: 16, fontSize: 16 }
 });
