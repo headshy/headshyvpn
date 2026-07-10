@@ -12,12 +12,12 @@ workflows:
           npm install
       - name: Generate iOS native folder (Expo Prebuild)
         script: |
-          # Этот шаг создаст папку ios и установит CocoaPods автоматически
           npx expo prebuild --platform ios
       - name: Build iOS Debug Application
         script: |
-          xcodebuild -workspace ios/*.xcworkspace \
-            -scheme $(xcodebuild -list -workspace ios/*.xcworkspace | grep -m 1 -E "^\s+\S+" | awk '{print $1}') \
+          # Мы жестко указали схему HeadshyVPN, чтобы избежать ошибок автоматического поиска
+          xcodebuild -workspace ios/HeadshyVPN.xcworkspace \
+            -scheme "HeadshyVPN" \
             -configuration Debug \
             -destination 'generic/platform=iOS' \
             CODE_SIGNING_ALLOWED=NO \
@@ -27,6 +27,7 @@ workflows:
           mkdir -p $HOME/Payload
           cp -r $HOME/build/Debug-iphoneos/*.app $HOME/Payload/
           cd $HOME
-          zip -r ios_debug_application.ipa Payload
+          # Называем выходной файл понятным именем
+          zip -r HeadshyVPN_Debug.ipa Payload
     artifacts:
-      - $HOME/ios-debug-build.ipa
+      - $HOME/HeadshyVPN_Debug.ipa
