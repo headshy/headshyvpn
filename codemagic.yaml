@@ -12,7 +12,7 @@ workflows:
       - name: Build and Export IPA
         script: |
           cd ios
-          # 1. Генерируем exportOptions.plist для разработки
+          # 1. Генерируем exportOptions.plist
           echo '<?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
           <plist version="1.0">
@@ -29,11 +29,11 @@ workflows:
           # 2. Установка подов
           pod install
           
-          # 3. Собираем приложение БЕЗ архивации (это обходит требование команды Development Team)
-          xcodebuild build -workspace HeadshyVPN.xcworkspace -scheme HeadshyVPN -configuration Release -destination 'generic/platform=iOS'
+          # 3. Собираем приложение с отключенной подписью
+          xcodebuild build -workspace HeadshyVPN.xcworkspace -scheme HeadshyVPN -configuration Release -destination 'generic/platform=iOS' CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO
           
-          # 4. Если нужно именно IPA, используем xcodebuild для сборки напрямую (через команду build)
-          # Или используем команду, которая не требует подписи
-          xcodebuild -exportArchive -archivePath HeadshyVPN.xcarchive -exportOptionsPlist exportOptions.plist -exportPath .
+          # 4. Создаем архив и экспортируем его с отключенной подписью
+          xcodebuild archive -workspace HeadshyVPN.xcworkspace -scheme HeadshyVPN -archivePath HeadshyVPN.xcarchive CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO
+          xcodebuild -exportArchive -archivePath HeadshyVPN.xcarchive -exportOptionsPlist exportOptions.plist -exportPath . CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO
     artifacts:
       - ios/*.ipa
