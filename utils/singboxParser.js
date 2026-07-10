@@ -1,32 +1,46 @@
 // utils/singboxParser.js
 
 export function generateSingboxConfig(rawLink) {
+  if (!rawLink) throw new Error('Пустая ссылка сервера');
+  
   if (rawLink.startsWith('vless://')) {
-    return parseVless(rawLink);
+    return parseProtocol(rawLink, 'vless');
+  } else if (rawLink.startsWith('trojan://')) {
+    return parseProtocol(rawLink, 'trojan');
   }
-  // В будущем сюда можно добавить `else if (rawLink.startsWith('trojan://'))`
-  throw new Error('Пока поддерживается только протокол VLESS');
+  
+  throw new Error(`Протокол не поддерживается: ${rawLink.split('://')[0]}`);
 }
 
-function parseVless(link) {
-  // Разбиваем ссылку: vless://uuid@host:port?query#name
+function parseProtocol(link, protocolType) {
+  // Разбираем строку: protocol://credentials@host:port?query#name
   const [main, _hash] = link.split('#');
   const [protocol, rest] = main.split('://');
-  const [uuid, urlAndQuery] = rest.split('@');
   
+  if (!rest || !rest.includes('@')) {
+    throw new Error('Неверный формат ссылки (отсутствует @)');
+  }
+  
+  const [credentials, urlAndQuery] = rest.split('@');
   const [hostPort, queryStr] = urlAndQuery.split('?');
   const [server, port] = hostPort.split(':');
 
-  // Парсим параметры из части с вопросительным знаком
+  if (!server || !port) {
+    throw new Error('Не удалось определить IP или порт сервера');
+  }
+
+  // Безопасно парсим параметры (если они есть)
   const query = {};
   if (queryStr) {
     queryStr.split('&').forEach(pair => {
       const [key, value] = pair.split('=');
-      query[key] = decodeURIComponent(value);
+      if (key && value) {
+        query[key] = decodeURIComponent(value);
+      }
     });
   }
 
-  // 1. Базовый шаблон конфига Sing-box для iOS
+  // Базовый шаблон конфига Sing-box для iOS (Network Extension)
   const config = {
     log: { level: "info" },
     inbounds: [
@@ -34,22 +48,19 @@ function parseVless(link) {
         type: "tun",
         tag: "tun-in",
         interface_name: "utun", // Виртуальный интерфейс iOS
-        inet4_address: "198.18.0.1/16", // Локальный IP туннеля
-        auto_route: true, // Автоматически заворачивать трафик
+        inet4_address: "198.18.0.1/16",
+        auto_route: true,
         strict_route: true,
-        stack: "system", // Использовать сетевой стек Apple
-        sniff: true // Для правильной маршрутизации доменов
+        stack: "system", // Критично для iOS
+        sniff: true
       }
     ],
     outbounds: [
       {
-        type: "vless",
+        type: protocolType, // "vless" или "trojan"
         tag: "proxy",
         server: server,
-        server_port: parseInt(port),
-        uuid: uuid,
-        packet_encoding: "xudp",
-        flow: query.flow || ""
+        server_port: parseInt(port)
       },
       { type: "direct", tag: "direct" },
       { type: "dns", tag: "dns-out" }
@@ -62,7 +73,16 @@ function parseVless(link) {
     }
   };
 
-  // 2. Накручиваем настройки безопасности (Reality или обычный TLS)
+  // Добавляем специфичные для протокола настройки
+  if (protocolType === 'vless') {
+    config.outbounds[0].uuid = credentials;
+    config.outbounds[0].packet_encoding = "xudp";
+    if (query.flow) config.outbounds[0].flow = query.flow;
+  } else if (protocolType === 'trojan') {
+    config.outbounds[0].password = credentials;
+  }
+
+  // Настраиваем шифрование (Reality / обычный TLS)
   if (query.security === 'reality') {
     config.outbounds[0].tls = {
       enabled: true,
@@ -73,11 +93,11 @@ function parseVless(link) {
       },
       reality: {
         enabled: true,
-        public_key: query.pbk,
+        public_key: query.pbk || "",
         short_id: query.sid || ""
       }
     };
-  } else if (query.security === 'tls') {
+  } else if (query.security === 'tls' || query.security === 'xtls') {
     config.outbounds[0].tls = {
       enabled: true,
       server_name: query.sni || server,
@@ -88,6 +108,5 @@ function parseVless(link) {
     };
   }
 
-  // Возвращаем строку, так как Swift-мост ждет String
   return JSON.stringify(config);
 }
