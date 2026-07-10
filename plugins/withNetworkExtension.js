@@ -4,6 +4,7 @@ const path = require('path');
 const { execSync } = require('child_process');
 
 const EXTENSION_NAME = 'HeadshyVPNTunnel';
+const APP_NAME = 'HeadshyVPN'; // Имя твоего Xcode проекта
 
 const withNetworkExtension = (config) => {
   return withDangerousMod(config, [
@@ -12,30 +13,23 @@ const withNetworkExtension = (config) => {
       const projectRoot = config.modRequest.projectRoot;
       const iosPath = path.join(projectRoot, 'ios');
       const extensionSourceDir = path.join(projectRoot, 'ios-extension');
+      
       const iosDestinationDir = path.join(iosPath, EXTENSION_NAME);
+      const appTargetDir = path.join(iosPath, APP_NAME);
 
-      // 1. Создаем папку и копируем файлы (PacketTunnelProvider.swift и скачанный libbox)
-      if (!fs.existsSync(iosDestinationDir)) {
-        fs.mkdirSync(iosDestinationDir, { recursive: true });
-      }
-
+      // 1. Копируем файлы туннеля
+      if (!fs.existsSync(iosDestinationDir)) fs.mkdirSync(iosDestinationDir, { recursive: true });
       const copyRecursiveSync = (src, dest) => {
-        const exists = fs.existsSync(src);
-        const stats = exists && fs.statSync(src);
-        if (exists && stats.isDirectory()) {
+        if (fs.existsSync(src) && fs.statSync(src).isDirectory()) {
           if (!fs.existsSync(dest)) fs.mkdirSync(dest);
           fs.readdirSync(src).forEach((child) => copyRecursiveSync(path.join(src, child), path.join(dest, child)));
         } else {
           fs.copyFileSync(src, dest);
         }
       };
+      if (fs.existsSync(extensionSourceDir)) copyRecursiveSync(extensionSourceDir, iosDestinationDir);
 
-      if (fs.existsSync(extensionSourceDir)) {
-        copyRecursiveSync(extensionSourceDir, iosDestinationDir);
-      }
-
-      // 2. Генерируем Info.plist для VPN туннеля
-      // Идентификатор обязан содержать суффикс, например .tunnel
+      // 2. Генерируем Info.plist
       const bundleId = config.ios.bundleIdentifier + '.tunnel';
       const plistContent = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -68,28 +62,86 @@ const withNetworkExtension = (config) => {
 </plist>`;
       fs.writeFileSync(path.join(iosDestinationDir, 'Info.plist'), plistContent);
 
-      // 3. Создаем Ruby-скрипт для идеальной интеграции в .pbxproj
+      // 3. НОВЫЙ ШАГ: Пишем файлы моста прямо в папку приложения
+      const swiftBridgeCode = `import Foundation
+import NetworkExtension
+
+@objc(VpnManager)
+class VpnManager: NSObject {
+  private var tunnelBundleId: String { return Bundle.main.bundleIdentifier! + ".tunnel" }
+
+  @objc func startVPN(_ config: String, resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock) {
+    NETunnelProviderManager.loadAllFromPreferences { managers, error in
+      if let error = error { reject("ERR", "Load error", error); return }
+      
+      let manager = managers?.first ?? NETunnelProviderManager()
+      let protocolConfiguration = NETunnelProviderProtocol()
+      protocolConfiguration.providerBundleIdentifier = self.tunnelBundleId
+      protocolConfiguration.serverAddress = "Headshy Node" 
+      protocolConfiguration.providerConfiguration = ["serverConfig": config]
+      
+      manager.protocolConfiguration = protocolConfiguration
+      manager.localizedDescription = "Headshy VPN"
+      manager.isEnabled = true
+
+      manager.saveToPreferences { error in
+        if let error = error { reject("ERR", "Save error", error); return }
+        manager.loadFromPreferences { error in
+          if let error = error { reject("ERR", "Reload error", error); return }
+          do {
+            try manager.connection.startVPNTunnel()
+            resolve(true)
+          } catch {
+            reject("ERR", "Start error", error)
+          }
+        }
+      }
+    }
+  }
+
+  @objc func stopVPN(_ resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock) {
+    NETunnelProviderManager.loadAllFromPreferences { managers, error in
+      managers?.first?.connection.stopVPNTunnel()
+      resolve(true)
+    }
+  }
+  
+  @objc static func requiresMainQueueSetup() -> Bool { return false }
+}`;
+      fs.writeFileSync(path.join(appTargetDir, 'VpnManager.swift'), swiftBridgeCode);
+
+      const objcBridgeCode = `#import <React/RCTBridgeModule.h>
+
+@interface RCT_EXTERN_MODULE(VpnManager, NSObject)
+RCT_EXTERN_METHOD(startVPN:(NSString *)config resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject)
+RCT_EXTERN_METHOD(stopVPN:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject)
+@end`;
+      fs.writeFileSync(path.join(appTargetDir, 'VpnManager.m'), objcBridgeCode);
+
+      // 4. Обновленный Ruby-скрипт (теперь он прописывает мост в Xcode)
       const rubyScript = `
 require 'xcodeproj'
-
-project_path = 'HeadshyVPN.xcodeproj'
+project_path = '${APP_NAME}.xcodeproj'
 project = Xcodeproj::Project.open(project_path)
-main_target = project.targets.find { |t| t.name == 'HeadshyVPN' }
+main_target = project.targets.find { |t| t.name == '${APP_NAME}' }
 
-# Создаем таргет расширения
+# -- Внедряем мост в главное приложение --
+app_group = project.main_group.find_subpath('${APP_NAME}', true)
+bridge_swift = app_group.new_file('VpnManager.swift')
+main_target.source_build_phase.add_file_reference(bridge_swift)
+bridge_m = app_group.new_file('VpnManager.m')
+main_target.source_build_phase.add_file_reference(bridge_m)
+
+# -- Создаем таргет туннеля --
 ext_target = project.new_target(:app_extension, '${EXTENSION_NAME}', :ios, '14.0')
 ext_target.product_reference.name = '${EXTENSION_NAME}.appex'
-
-# Создаем виртуальную группу в Xcode и привязываем папку
 group = project.main_group.find_subpath('${EXTENSION_NAME}', true)
 group.set_source_tree('<group>')
 group.set_path('${EXTENSION_NAME}')
 
-# Добавляем Swift-файл туннеля
 swift_file = group.new_file('PacketTunnelProvider.swift')
 ext_target.source_build_phase.add_file_reference(swift_file)
 
-# Прописываем настройки компиляции
 ext_target.build_configurations.each do |c|
   c.build_settings['INFOPLIST_FILE'] = '${EXTENSION_NAME}/Info.plist'
   c.build_settings['PRODUCT_BUNDLE_IDENTIFIER'] = '${bundleId}'
@@ -97,16 +149,13 @@ ext_target.build_configurations.each do |c|
   c.build_settings['CODE_SIGNING_ALLOWED'] = 'NO'
 end
 
-# Линкуем системный фреймворк NetworkExtension
 framework_ref = project.frameworks_group.new_reference('System/Library/Frameworks/NetworkExtension.framework')
 framework_ref.source_tree = 'SDKROOT'
 ext_target.frameworks_build_phase.add_file_reference(framework_ref)
 
-# Линкуем наше скачанное ядро Libbox
 libbox_ref = group.new_file('Libbox.xcframework')
 ext_target.frameworks_build_phase.add_file_reference(libbox_ref)
 
-# Самое важное: встраиваем (Embed) собранный туннель в главное приложение
 embed_phase = project.new(Xcodeproj::Project::Object::PBXCopyFilesBuildPhase)
 embed_phase.name = 'Embed App Extensions'
 embed_phase.symbolic_dst_subfolder_spec = :plug_ins
@@ -116,19 +165,14 @@ file_ref.settings = { 'ATTRIBUTES' => ['RemoveHeadersOnCopy'] }
 main_target.add_dependency(ext_target)
 
 project.save
-puts '✅ Network Extension успешно внедрен в Xcode проект!'
+puts '✅ Нативный мост и туннель успешно внедрены!'
 `;
-      
-      const scriptPath = path.join(iosPath, 'add_vpn_target.rb');
-      fs.writeFileSync(scriptPath, rubyScript);
+      fs.writeFileSync(path.join(iosPath, 'add_vpn_target.rb'), rubyScript);
 
-      // 4. Запускаем Ruby скрипт прямо во время Prebuild
       try {
-        console.log('⚡️ Вызов Xcodeproj для модификации таргетов...');
-        // Устанавливаем xcodeproj на случай, если его нет в окружении, и запускаем скрипт
         execSync('gem install xcodeproj --no-document && ruby add_vpn_target.rb', { cwd: iosPath, stdio: 'inherit' });
       } catch (error) {
-        console.error('❌ Ошибка интеграции таргета VPN:', error.message);
+        console.error('❌ Ошибка интеграции:', error.message);
       }
 
       return config;
