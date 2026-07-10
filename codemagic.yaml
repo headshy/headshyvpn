@@ -13,19 +13,21 @@ workflows:
           npm install
       - name: Install CocoaPods
         script: |
-          cd ios && pod install
+          cd ios
+          # Очищаем старые артефакты, если они случайно попали в git
+          rm -rf Pods Podfile.lock
+          # Обновляем зависимости с флагом обновления репозитория
+          pod install --repo-update
       - name: Build iOS Debug Application
         script: |
-          # Собираем debug-версию, которая не требует платных сертификатов App Store
           xcodebuild -workspace ios/*.xcworkspace \
             -scheme $(xcodebuild -list -workspace ios/*.xcworkspace | grep -m 1 -E "^\s+\S+" | awk '{print $1}') \
             -configuration Debug \
-            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
             CODE_SIGNING_ALLOWED=NO \
             BUILD_DIR=$HOME/build
       - name: Package to IPA
         script: |
-          # Создаем структуру папок и упаковываем скомпилированное приложение в .ipa
           mkdir -p $HOME/Payload
           cp -r $HOME/build/Debug-iphoneos/*.app $HOME/Payload/
           cd $HOME
